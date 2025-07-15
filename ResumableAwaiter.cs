@@ -1,6 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
-using Newtonsoft.Json;
-using ResumableFunctions.Converters;
+using ResumableFunctions.Data;
 
 namespace ResumableFunctions;
 
@@ -8,25 +7,24 @@ public sealed class ResumableAwaiter<T> : ResumableAwaiter
 {
     public new T? GetResult() => (T?)resultValue;
 
-    public ResumableAwaiter(IAsyncEnumerable<ResumableFunctionState<T>> asyncEnum)
+    public ResumableAwaiter(IAsyncEnumerable<ResumableFunctionState<T>> asyncEnum, IResumableManager manager) : base(manager)
     {
         task = RunEnumeration(asyncEnum);
     }
 
     private async Task RunEnumeration(IAsyncEnumerable<ResumableFunctionState<T>> enumerable)
     {
-        string state = "{}";
+        manager.TryGetOriginalMethod(enumerable, out var method);
         await Task.Yield();
         await using var asyncEnumerator = enumerable.GetAsyncEnumerator();
         try
         {
             while (await asyncEnumerator.MoveNextAsync())
             {
-                state = JsonConvert.SerializeObject(asyncEnumerator, asyncEnumerator.GetType(), jsonFormatting, settings);
-                Console.WriteLine(state);
+                await manager.Save(asyncEnumerator);
                 switch (asyncEnumerator.Current.stateValue)
                 {
-                    case ResumableFunctionState.State.Checkpoint:
+                    case ResumableFunctionState.State.Yield:
                         Console.WriteLine("checkpoint");
                         break;
                     case ResumableFunctionState.State.CompleteSuccess:
@@ -56,13 +54,8 @@ public sealed class ResumableAwaiter<T> : ResumableAwaiter
 
 public class ResumableAwaiter : ICriticalNotifyCompletion, IAsyncDisposable
 {
-    protected readonly Formatting jsonFormatting = Formatting.None;
-    protected readonly JsonSerializerSettings settings = new()
-    {
-        //ContractResolver = new AllFieldsResolver(),
-        ReferenceLoopHandling = ReferenceLoopHandling.Serialize,
-        Converters = { new AsyncEnumeratorConverter() },
-    };
+    protected readonly IResumableManager manager;
+    
 
     protected Action? continuationAction;
     protected object? resultValue;
@@ -70,11 +63,14 @@ public class ResumableAwaiter : ICriticalNotifyCompletion, IAsyncDisposable
 
     public bool IsCompleted { get; protected set; }
 
-    public virtual void GetResult() { }
+    public void GetResult() { }
 
-    protected ResumableAwaiter() { }
+    protected ResumableAwaiter(IResumableManager manager)
+    {
+        this.manager = manager;
+    }
 
-    public ResumableAwaiter(IAsyncEnumerable<ResumableFunctionState> asyncEnum)
+    public ResumableAwaiter(IAsyncEnumerable<ResumableFunctionState> asyncEnum, IResumableManager manager) : this(manager)
     {
         task = RunEnumeration(asyncEnum);
     }
@@ -95,20 +91,28 @@ public class ResumableAwaiter : ICriticalNotifyCompletion, IAsyncDisposable
         task.Dispose();
     }
 
+    protected string GetDefaultName(object enumerable)
+    {
+        string name = enumerable.GetType().FullName ?? enumerable.GetType().Name;
+        foreach (char c in Path.GetInvalidFileNameChars())
+        {
+            name = name.Replace(c, '_');
+        }
+        return name;
+    }
+
     private async Task RunEnumeration(IAsyncEnumerable<ResumableFunctionState> enumerable)
     {
-        string state = "{}";
         await Task.Yield();
         await using var asyncEnumerator = enumerable.GetAsyncEnumerator();
         try
         {
             while (await asyncEnumerator.MoveNextAsync())
             {
-                state = JsonConvert.SerializeObject(asyncEnumerator, asyncEnumerator.GetType(), jsonFormatting, settings);
-                Console.WriteLine(state);
+                await manager.Save(asyncEnumerator);
                 switch (asyncEnumerator.Current.stateValue)
                 {
-                    case ResumableFunctionState.State.Checkpoint:
+                    case ResumableFunctionState.State.Yield:
                         Console.WriteLine("checkpoint");
                         break;
                     case ResumableFunctionState.State.CompleteSuccess:

@@ -1,11 +1,11 @@
-﻿namespace ResumableFunctions;
+﻿namespace ResumableFunctions.Data;
 
 public readonly struct ResumableFunctionState
 {
     public enum State
     {
         Invalid,
-        Checkpoint,
+        Yield,
         CompleteSuccess,
         CompleteFail,
     }
@@ -20,7 +20,7 @@ public readonly struct ResumableFunctionState
     }
 
     /// <summary>Continuation state</summary>
-    public static ResumableFunctionState Checkpoint() => new(State.Checkpoint);
+    public static ResumableFunctionState Yield() => new(State.Yield);
 
     /// <summary>Finish state</summary>
     public static ResumableFunctionState<T> Success<T>(T? result) => new(State.CompleteSuccess, result);
