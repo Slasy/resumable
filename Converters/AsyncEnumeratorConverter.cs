@@ -63,9 +63,9 @@ internal class AsyncEnumeratorConverter : JsonConverter
             {
                 serializer.Serialize(writer, field.GetValue(value));
             }
-            if (Regex.Match(field.Name, @"^<>\d+__(.+)$", RegexOptions.Compiled) is { Success: true } match)
+            if (TryMatchName(field.Name, out var name))
             {
-                privateNames.Add(match.Groups[1].Value);
+                privateNames.Add(name.ToString());
             }
         }
         fields = valueType.GetFields(BindingFlags.Instance | BindingFlags.NonPublic);
@@ -81,5 +81,25 @@ internal class AsyncEnumeratorConverter : JsonConverter
     public override object? ReadJson(JsonReader reader, Type objectType, object? existingValue, JsonSerializer serializer)
     {
         return serializer.Deserialize(reader, objectType); // tohle neubde fungovat pro privátní fieldy
+    }
+
+    /// <summary>
+    /// Matches: ^&lt;&gt;\d+__(.+)$
+    /// </summary>
+    private static bool TryMatchName(ReadOnlySpan<char> input, out ReadOnlySpan<char> match)
+    {
+        match = ReadOnlySpan<char>.Empty;
+        if (input.Length < 6) return false;
+        if (input[0] != '<') return false;
+        if (input[1] != '>') return false;
+        int index;
+        for (index = 2;; index++)
+        {
+            if (char.IsAsciiDigit(input[index])) continue;
+            if (input.Length > index + 1 && input[index] == '_' && input[index + 1] == '_') break;
+            return false;
+        }
+        match = input[(2 + index)..];
+        return true;
     }
 }

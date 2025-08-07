@@ -1,5 +1,6 @@
 ﻿using ResumableFunctions.Attributes;
 using ResumableFunctions.Data;
+using ResumableFunctions.Extensions;
 
 namespace ResumableFunctions;
 
@@ -8,6 +9,7 @@ public class Dummy
     public string something = "Hello";
     public int thing = 42;
     private int counter;
+    private static int staticCounter = 100;
 
     [ResumableFunction]
     public async IAsyncEnumerable<ResumableFunctionState<string>> ThatMethod()
@@ -15,14 +17,20 @@ public class Dummy
         yield return ResumableFunctionState.Yield();
         yield return ResumableFunctionState.Yield();
         await Task.Yield();
+        await PrivateMethod();
         yield return ResumableFunctionState.Yield();
+        await PrivateMethod();
         yield return ResumableFunctionState.Success("Hello");
     }
 
-    //[ResumableFunction("My super method",1)]
+    [ResumableFunction("My super method", 1)]
     private static async IAsyncEnumerable<ResumableFunctionState> PrivateMethod()
     {
         await Task.Yield();
+        await Task.Delay(300);
+        staticCounter += 7;
+        Console.WriteLine("Private method...");
+        await Task.Delay(300);
         yield return ResumableFunctionState.Success();
     }
 

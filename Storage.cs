@@ -16,6 +16,7 @@ public sealed class Storage : IStorage
     public Storage(string rootFolder)
     {
         this.rootFolder = Path.GetFullPath(rootFolder);
+        Directory.CreateDirectory(this.rootFolder);
     }
 
     public Task Save(string name, string content)

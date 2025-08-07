@@ -12,7 +12,9 @@ public sealed record RegisteredMethod(ResumableFunctionAttribute ResumeAttribute
 {
     public override string ToString()
     {
-        return $"{nameof(RegisteredMethod)}: '{ResumeAttribute.MethodNameOverride}'[{ResumeAttribute.ImplementationVersion}] ({OriginalMethod.Name}), {StateMachine.FullName}";
+        return string.IsNullOrEmpty(ResumeAttribute.MethodNameOverride)
+            ? $"{nameof(RegisteredMethod)}: '{OriginalMethod.Name}'[{ResumeAttribute.ImplementationVersion}]; {StateMachine.FullName}"
+            : $"{nameof(RegisteredMethod)}: '{ResumeAttribute.MethodNameOverride}'[{ResumeAttribute.ImplementationVersion}] ('{OriginalMethod.Name}'); {StateMachine.FullName}";
     }
 }
 
@@ -30,8 +32,6 @@ public sealed class ResumableManager : IResumableManager
         },
     };
 
-    public IReadOnlyCollection<RegisteredMethod> RegisteredMethods => registeredMethods;
-
     public ResumableManager(IStorage storage) => this.storage = storage;
 
     public ResumableManager RegisterAssembly<T>() => RegisterAssembly(typeof(T));
@@ -46,6 +46,7 @@ public sealed class ResumableManager : IResumableManager
 
     public ResumableManager Init()
     {
+        Console.WriteLine("### registered resumable functions ###");
         foreach (Assembly assembly in assemblies)
         {
             foreach (Type type in assembly.GetTypes())
@@ -56,7 +57,9 @@ public sealed class ResumableManager : IResumableManager
                     {
                         if (method.GetCustomAttribute<ResumableFunctionAttribute>() is { } resumeAttribute)
                         {
-                            registeredMethods.Add(new RegisteredMethod(resumeAttribute, method, machineAttribute.StateMachineType));
+                            RegisteredMethod regMethod;
+                            registeredMethods.Add(regMethod = new RegisteredMethod(resumeAttribute, method, machineAttribute.StateMachineType));
+                            Console.WriteLine(regMethod.ToString());
                         }
                         else
                         {
@@ -74,13 +77,25 @@ public sealed class ResumableManager : IResumableManager
     public async Task Save(IAsyncEnumerator<ResumableFunctionState> asyncEnumerator)
     {
         ResumableData<ResumableFunctionState> data = PrepareData(asyncEnumerator);
-        await storage.Save($"{data.Metadata.Name}.json", Serialize(data));
+        await storage.Save(FileName(data), Serialize(data));
     }
 
     public async Task Save<T>(IAsyncEnumerator<ResumableFunctionState<T>> asyncEnumerator)
     {
         ResumableData<ResumableFunctionState<T>> data = PrepareData(asyncEnumerator);
-        await storage.Save($"{data.Metadata.Name}.json", Serialize(data));
+        await storage.Save(FileName(data), Serialize(data));
+    }
+
+    public async Task Remove(IAsyncEnumerator<ResumableFunctionState> asyncEnumerator)
+    {
+        ResumableData<ResumableFunctionState> data = PrepareData(asyncEnumerator);
+        await storage.Delete(FileName(data));
+    }
+
+    public async Task Remove<T>(IAsyncEnumerator<ResumableFunctionState<T>> asyncEnumerator)
+    {
+        ResumableData<ResumableFunctionState<T>> data = PrepareData(asyncEnumerator);
+        await storage.Delete(FileName(data));
     }
 
     public bool TryGetOriginalMethod<T>(IAsyncEnumerable<ResumableFunctionState<T>> enumerable, [NotNullWhen(true)] out RegisteredMethod? method)
@@ -91,6 +106,11 @@ public sealed class ResumableManager : IResumableManager
     public bool TryGetOriginalMethod(IAsyncEnumerable<ResumableFunctionState> enumerable, [NotNullWhen(true)] out RegisteredMethod? method)
     {
         return TryGetOriginalMethodInternal(enumerable.GetType(), out method);
+    }
+
+    private static string FileName<T>(ResumableData<T> data)
+    {
+        return data.Metadata.Name + ".json";
     }
 
     private RegisteredMethod GetOriginalMethodOrFail(Type stateMachineType)
@@ -127,9 +147,10 @@ public sealed class ResumableManager : IResumableManager
         return new ResumableData<T>
         {
             EnumeratorState = enumerator,
-            Metadata = new ResumableData<T>.MData
+            Metadata = new ResumableData<T>.MetaData
             {
                 Name = method.OriginalMethod.Name,
+                Type = method.OriginalMethod.DeclaringType ?? throw new NullReferenceException("Method is missing declaring type"),
             },
         };
     }

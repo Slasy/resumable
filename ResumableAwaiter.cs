@@ -14,27 +14,24 @@ public sealed class ResumableAwaiter<T> : ResumableAwaiter
 
     private async Task RunEnumeration(IAsyncEnumerable<ResumableFunctionState<T>> enumerable)
     {
-        manager.TryGetOriginalMethod(enumerable, out var method);
         await Task.Yield();
         await using var asyncEnumerator = enumerable.GetAsyncEnumerator();
         try
         {
             while (await asyncEnumerator.MoveNextAsync())
             {
-                await manager.Save(asyncEnumerator);
                 switch (asyncEnumerator.Current.stateValue)
                 {
                     case ResumableFunctionState.State.Yield:
-                        Console.WriteLine("checkpoint");
+                        await manager.Save(asyncEnumerator);
                         break;
                     case ResumableFunctionState.State.CompleteSuccess:
-                        Console.WriteLine("done");
                         resultValue = asyncEnumerator.Current.resultValue;
-                        return;
+                        await manager.Remove(asyncEnumerator);
+                        break;
                     case ResumableFunctionState.State.CompleteFail:
-                        Console.WriteLine("fail");
-                        resultValue = asyncEnumerator.Current.resultValue;
-                        return;
+                        await manager.Remove(asyncEnumerator);
+                        break;
                 }
             }
         }
@@ -44,9 +41,7 @@ public sealed class ResumableAwaiter<T> : ResumableAwaiter
         }
         finally
         {
-            Console.WriteLine("finishing awaiter");
             IsCompleted = true;
-            Console.WriteLine("invoking continuation method");
             continuationAction?.Invoke();
         }
     }
@@ -55,7 +50,6 @@ public sealed class ResumableAwaiter<T> : ResumableAwaiter
 public class ResumableAwaiter : ICriticalNotifyCompletion, IAsyncDisposable
 {
     protected readonly IResumableManager manager;
-    
 
     protected Action? continuationAction;
     protected object? resultValue;
@@ -79,14 +73,12 @@ public class ResumableAwaiter : ICriticalNotifyCompletion, IAsyncDisposable
 
     public void UnsafeOnCompleted(Action continuation)
     {
-        Console.WriteLine("on completed called");
         if (IsCompleted) continuation();
         else continuationAction = continuation;
     }
 
     public async ValueTask DisposeAsync()
     {
-        Console.WriteLine("disposing awaiter");
         await task;
         task.Dispose();
     }
@@ -109,18 +101,15 @@ public class ResumableAwaiter : ICriticalNotifyCompletion, IAsyncDisposable
         {
             while (await asyncEnumerator.MoveNextAsync())
             {
-                await manager.Save(asyncEnumerator);
                 switch (asyncEnumerator.Current.stateValue)
                 {
                     case ResumableFunctionState.State.Yield:
-                        Console.WriteLine("checkpoint");
+                        await manager.Save(asyncEnumerator);
                         break;
                     case ResumableFunctionState.State.CompleteSuccess:
-                        Console.WriteLine("done");
-                        return;
                     case ResumableFunctionState.State.CompleteFail:
-                        Console.WriteLine("fail");
-                        return;
+                        await manager.Remove(asyncEnumerator);
+                        break;
                 }
             }
         }
@@ -130,9 +119,7 @@ public class ResumableAwaiter : ICriticalNotifyCompletion, IAsyncDisposable
         }
         finally
         {
-            Console.WriteLine("finishing awaiter");
             IsCompleted = true;
-            Console.WriteLine("invoking continuation method");
             continuationAction?.Invoke();
         }
     }
