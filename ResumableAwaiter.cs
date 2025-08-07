@@ -10,6 +10,7 @@ public class ResumableAwaiter : ICriticalNotifyCompletion, IAsyncDisposable
     protected Action? continuationAction;
     protected object? resultValue;
     protected Task task = null!;
+    public readonly DateTime startTime;
 
     public bool IsCompleted { get; protected set; }
 
@@ -17,6 +18,7 @@ public class ResumableAwaiter : ICriticalNotifyCompletion, IAsyncDisposable
 
     protected ResumableAwaiter(IResumableManager manager)
     {
+        startTime = DateTime.UtcNow;
         this.manager = manager;
     }
 
@@ -60,11 +62,11 @@ public class ResumableAwaiter : ICriticalNotifyCompletion, IAsyncDisposable
                 switch (asyncEnumerator.Current.stateValue)
                 {
                     case ResumableFunctionState.State.Yield:
-                        await manager.Save(asyncEnumerator);
+                        await manager.Save(this, asyncEnumerator);
                         break;
                     case ResumableFunctionState.State.CompleteSuccess:
                     case ResumableFunctionState.State.CompleteFail:
-                        await manager.Remove(asyncEnumerator);
+                        await manager.Remove(this, asyncEnumerator);
                         break;
                 }
             }
@@ -101,14 +103,14 @@ public sealed class ResumableAwaiter<T> : ResumableAwaiter
                 switch (asyncEnumerator.Current.stateValue)
                 {
                     case ResumableFunctionState.State.Yield:
-                        await manager.Save(asyncEnumerator);
+                        await manager.Save(this, asyncEnumerator);
                         break;
                     case ResumableFunctionState.State.CompleteSuccess:
                         resultValue = asyncEnumerator.Current.resultValue;
-                        await manager.Remove(asyncEnumerator);
+                        await manager.Remove(this, asyncEnumerator);
                         break;
                     case ResumableFunctionState.State.CompleteFail:
-                        await manager.Remove(asyncEnumerator);
+                        await manager.Remove(this, asyncEnumerator);
                         break;
                 }
             }

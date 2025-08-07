@@ -74,27 +74,27 @@ public sealed class ResumableManager : IResumableManager
         return this;
     }
 
-    public async Task Save(IAsyncEnumerator<ResumableFunctionState> asyncEnumerator)
+    public async Task Save(ResumableAwaiter awaiter, IAsyncEnumerator<ResumableFunctionState> asyncEnumerator)
     {
-        ResumableData<ResumableFunctionState> data = PrepareData(asyncEnumerator);
+        ResumableData<ResumableFunctionState> data = PrepareData(awaiter, asyncEnumerator);
         await storage.Save(FileName(data), Serialize(data));
     }
 
-    public async Task Save<T>(IAsyncEnumerator<ResumableFunctionState<T>> asyncEnumerator)
+    public async Task Save<T>(ResumableAwaiter awaiter, IAsyncEnumerator<ResumableFunctionState<T>> asyncEnumerator)
     {
-        ResumableData<ResumableFunctionState<T>> data = PrepareData(asyncEnumerator);
+        ResumableData<ResumableFunctionState<T>> data = PrepareData(awaiter, asyncEnumerator);
         await storage.Save(FileName(data), Serialize(data));
     }
 
-    public async Task Remove(IAsyncEnumerator<ResumableFunctionState> asyncEnumerator)
+    public async Task Remove(ResumableAwaiter awaiter, IAsyncEnumerator<ResumableFunctionState> asyncEnumerator)
     {
-        ResumableData<ResumableFunctionState> data = PrepareData(asyncEnumerator);
+        ResumableData<ResumableFunctionState> data = PrepareData(awaiter, asyncEnumerator);
         await storage.Delete(FileName(data));
     }
 
-    public async Task Remove<T>(IAsyncEnumerator<ResumableFunctionState<T>> asyncEnumerator)
+    public async Task Remove<T>(ResumableAwaiter awaiter, IAsyncEnumerator<ResumableFunctionState<T>> asyncEnumerator)
     {
-        ResumableData<ResumableFunctionState<T>> data = PrepareData(asyncEnumerator);
+        ResumableData<ResumableFunctionState<T>> data = PrepareData(awaiter, asyncEnumerator);
         await storage.Delete(FileName(data));
     }
 
@@ -108,9 +108,10 @@ public sealed class ResumableManager : IResumableManager
         return TryGetOriginalMethodInternal(enumerable.GetType(), out method);
     }
 
-    private static string FileName<T>(ResumableData<T> data)
+    private static string FileName<T>(ResumableData<T> data) where T : struct
     {
-        return data.Metadata.Name + ".json";
+        //return $"{data.Metadata.LastUpdateTime:yyMMddHHmmssfff}_{data.Metadata.Name}.json";
+        return $"{data.Metadata.Id}_{data.Metadata.MethodName}.json";
     }
 
     private RegisteredMethod GetOriginalMethodOrFail(Type stateMachineType)
@@ -141,7 +142,8 @@ public sealed class ResumableManager : IResumableManager
         return method.ReturnType.GenericTypeArguments[0].GetGenericTypeDefinition() == typeof(ResumableFunctionState<>);
     }
 
-    private ResumableData<T> PrepareData<T>(IAsyncEnumerator<T> enumerator) where T : struct
+    private ResumableData<T> PrepareData<T>(ResumableAwaiter awaiter, IAsyncEnumerator<T> enumerator)
+        where T : struct
     {
         var method = GetOriginalMethodOrFail(enumerator.GetType());
         return new ResumableData<T>
@@ -149,7 +151,9 @@ public sealed class ResumableManager : IResumableManager
             EnumeratorState = enumerator,
             Metadata = new ResumableData<T>.MetaData
             {
-                Name = method.OriginalMethod.Name,
+                Id = $"{awaiter.startTime:yyMMddHHmmssfff}T",
+                StartTime = awaiter.startTime,
+                MethodName = method.OriginalMethod.Name,
                 Type = method.OriginalMethod.DeclaringType ?? throw new NullReferenceException("Method is missing declaring type"),
             },
         };
