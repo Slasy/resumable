@@ -3,50 +3,6 @@ using ResumableFunctions.Data;
 
 namespace ResumableFunctions;
 
-public sealed class ResumableAwaiter<T> : ResumableAwaiter
-{
-    public new T? GetResult() => (T?)resultValue;
-
-    public ResumableAwaiter(IAsyncEnumerable<ResumableFunctionState<T>> asyncEnum, IResumableManager manager) : base(manager)
-    {
-        task = RunEnumeration(asyncEnum);
-    }
-
-    private async Task RunEnumeration(IAsyncEnumerable<ResumableFunctionState<T>> enumerable)
-    {
-        await Task.Yield();
-        await using var asyncEnumerator = enumerable.GetAsyncEnumerator();
-        try
-        {
-            while (await asyncEnumerator.MoveNextAsync())
-            {
-                switch (asyncEnumerator.Current.stateValue)
-                {
-                    case ResumableFunctionState.State.Yield:
-                        await manager.Save(asyncEnumerator);
-                        break;
-                    case ResumableFunctionState.State.CompleteSuccess:
-                        resultValue = asyncEnumerator.Current.resultValue;
-                        await manager.Remove(asyncEnumerator);
-                        break;
-                    case ResumableFunctionState.State.CompleteFail:
-                        await manager.Remove(asyncEnumerator);
-                        break;
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine(e);
-        }
-        finally
-        {
-            IsCompleted = true;
-            continuationAction?.Invoke();
-        }
-    }
-}
-
 public class ResumableAwaiter : ICriticalNotifyCompletion, IAsyncDisposable
 {
     protected readonly IResumableManager manager;
@@ -107,6 +63,50 @@ public class ResumableAwaiter : ICriticalNotifyCompletion, IAsyncDisposable
                         await manager.Save(asyncEnumerator);
                         break;
                     case ResumableFunctionState.State.CompleteSuccess:
+                    case ResumableFunctionState.State.CompleteFail:
+                        await manager.Remove(asyncEnumerator);
+                        break;
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
+        finally
+        {
+            IsCompleted = true;
+            continuationAction?.Invoke();
+        }
+    }
+}
+
+public sealed class ResumableAwaiter<T> : ResumableAwaiter
+{
+    public new T? GetResult() => (T?)resultValue;
+
+    public ResumableAwaiter(IAsyncEnumerable<ResumableFunctionState<T>> asyncEnum, IResumableManager manager) : base(manager)
+    {
+        task = RunEnumeration(asyncEnum);
+    }
+
+    private async Task RunEnumeration(IAsyncEnumerable<ResumableFunctionState<T>> enumerable)
+    {
+        await Task.Yield();
+        await using var asyncEnumerator = enumerable.GetAsyncEnumerator();
+        try
+        {
+            while (await asyncEnumerator.MoveNextAsync())
+            {
+                switch (asyncEnumerator.Current.stateValue)
+                {
+                    case ResumableFunctionState.State.Yield:
+                        await manager.Save(asyncEnumerator);
+                        break;
+                    case ResumableFunctionState.State.CompleteSuccess:
+                        resultValue = asyncEnumerator.Current.resultValue;
+                        await manager.Remove(asyncEnumerator);
+                        break;
                     case ResumableFunctionState.State.CompleteFail:
                         await manager.Remove(asyncEnumerator);
                         break;

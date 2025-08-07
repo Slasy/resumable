@@ -141,7 +141,7 @@ public sealed class ResumableManager : IResumableManager
         return method.ReturnType.GenericTypeArguments[0].GetGenericTypeDefinition() == typeof(ResumableFunctionState<>);
     }
 
-    private ResumableData<T> PrepareData<T>(IAsyncEnumerator<T> enumerator)
+    private ResumableData<T> PrepareData<T>(IAsyncEnumerator<T> enumerator) where T : struct
     {
         var method = GetOriginalMethodOrFail(enumerator.GetType());
         return new ResumableData<T>
@@ -156,4 +156,6 @@ public sealed class ResumableManager : IResumableManager
     }
 
     private string Serialize(object obj) => JsonConvert.SerializeObject(obj, JSON_FORMATTING, settings);
+    private T Deserialize<T>(string json) => JsonConvert.DeserializeObject<T>(json, settings) ?? throw new NullReferenceException();
+    private object Deserialize(string json, Type type) => JsonConvert.DeserializeObject(json, type, settings) ?? throw new NullReferenceException();
 }

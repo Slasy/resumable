@@ -1,7 +1,7 @@
 ﻿namespace ResumableFunctions.Data;
 
 // TODO
-internal class ResumableData<T>
+internal class ResumableData<T> where T : struct
 {
     internal class MetaData
     {
