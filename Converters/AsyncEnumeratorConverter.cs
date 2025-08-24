@@ -9,7 +9,7 @@ internal class AsyncEnumeratorConverter : JsonConverter
 {
     private readonly JsonSerializer nonPublicSerializer;
 
-    public override bool CanRead => true;
+    public override bool CanRead => false;
     public override bool CanWrite => true;
 
     public AsyncEnumeratorConverter()
@@ -80,7 +80,7 @@ internal class AsyncEnumeratorConverter : JsonConverter
 
     public override object? ReadJson(JsonReader reader, Type objectType, object? existingValue, JsonSerializer serializer)
     {
-        return serializer.Deserialize(reader, objectType); // tohle neubde fungovat pro privátní fieldy
+        throw new NotImplementedException();
     }
 
     /// <summary>

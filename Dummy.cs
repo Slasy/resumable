@@ -12,6 +12,29 @@ public class Dummy
     private static int staticCounter = 100;
 
     [ResumableFunction]
+    public static async IAsyncEnumerable<ResumableFunctionState<int>> StaticMethod(float explodeChance)
+    {
+        //var rng = new Random();
+        await Task.Delay(100);
+        int result = 30;
+        yield return ResumableFunctionState.Yield();
+        await Task.Delay(100);
+        result++;
+        yield return ResumableFunctionState.Yield();
+        result++;
+        float chance = 0;//rng.NextSingle();
+        Console.WriteLine(chance);
+        if (chance < explodeChance)
+        {
+            throw new ArgumentException("It exploded");
+        }
+        yield return ResumableFunctionState.Yield();
+        await Task.Delay(100);
+        result++;
+        yield return ResumableFunctionState.Success(result);
+    }
+
+    [ResumableFunction]
     public async IAsyncEnumerable<ResumableFunctionState<string>> ThatMethod()
     {
         yield return ResumableFunctionState.Yield();

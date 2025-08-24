@@ -2,6 +2,9 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
 using ResumableFunctions.Attributes;
 using ResumableFunctions.Converters;
 using ResumableFunctions.Data;
@@ -29,10 +32,14 @@ public sealed class ResumableManager : IResumableManager
         Converters =
         {
             new AsyncEnumeratorConverter(),
+            //new StringEnumConverter(new DefaultNamingStrategy()),
         },
     };
 
-    public ResumableManager(IStorage storage) => this.storage = storage;
+    public ResumableManager()
+    {
+        storage = InstanceProvider.Get<IStorage>();
+    }
 
     public ResumableManager RegisterAssembly<T>() => RegisterAssembly(typeof(T));
 
@@ -76,25 +83,25 @@ public sealed class ResumableManager : IResumableManager
 
     public async Task Save(ResumableAwaiter awaiter, IAsyncEnumerator<ResumableFunctionState> asyncEnumerator)
     {
-        ResumableData<ResumableFunctionState> data = PrepareData(awaiter, asyncEnumerator);
+        ResumablePersistenceData data = PrepareData(awaiter, asyncEnumerator);
         await storage.Save(FileName(data), Serialize(data));
     }
 
     public async Task Save<T>(ResumableAwaiter awaiter, IAsyncEnumerator<ResumableFunctionState<T>> asyncEnumerator)
     {
-        ResumableData<ResumableFunctionState<T>> data = PrepareData(awaiter, asyncEnumerator);
+        ResumablePersistenceData data = PrepareData(awaiter, asyncEnumerator);
         await storage.Save(FileName(data), Serialize(data));
     }
 
     public async Task Remove(ResumableAwaiter awaiter, IAsyncEnumerator<ResumableFunctionState> asyncEnumerator)
     {
-        ResumableData<ResumableFunctionState> data = PrepareData(awaiter, asyncEnumerator);
+        ResumablePersistenceData data = PrepareData(awaiter, asyncEnumerator);
         await storage.Delete(FileName(data));
     }
 
     public async Task Remove<T>(ResumableAwaiter awaiter, IAsyncEnumerator<ResumableFunctionState<T>> asyncEnumerator)
     {
-        ResumableData<ResumableFunctionState<T>> data = PrepareData(awaiter, asyncEnumerator);
+        ResumablePersistenceData data = PrepareData(awaiter, asyncEnumerator);
         await storage.Delete(FileName(data));
     }
 
@@ -103,14 +110,65 @@ public sealed class ResumableManager : IResumableManager
         return TryGetOriginalMethodInternal(enumerable.GetType(), out method);
     }
 
+    public async Task<IAsyncEnumerator<ResumableFunctionState>> Resume(string filename)
+    {
+        string jsonContent = await storage.Load(filename);
+        var resumeData = JsonConvert.DeserializeObject<ResumablePersistenceData>(jsonContent, settings);
+        var resumedEnumerator = (IAsyncEnumerator<ResumableFunctionState>)JsonConvert.DeserializeObject(resumeData.SerializedEnumeratorState, resumeData.Metadata.StateMachineType, settings);
+        return resumedEnumerator;
+    }
+
+    public async Task<IAsyncEnumerator<ResumableFunctionState<TOut>>> Resume<TOut>(string filename)
+    {
+        string jsonContent = await storage.Load(filename);
+        var resumeData = JsonConvert.DeserializeObject<ResumablePersistenceData>(jsonContent, settings);
+        object stateMachineInstance = Activator.CreateInstance(resumeData.Metadata.StateMachineType, 0)!;
+        resumeData.Restore(stateMachineInstance, settings);
+        //var resumedEnumerator = (IAsyncEnumerator<ResumableFunctionState<TOut>>)JsonConvert.DeserializeObject(resumeData.SerializedEnumeratorState, resumeData.Metadata.StateMachineType, settings);
+        return (IAsyncEnumerator<ResumableFunctionState<TOut>>)stateMachineInstance;
+    }
+
+    public Task<IAsyncEnumerator<ResumableFunctionState>> Resume(string filename, object existingInstance)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<IAsyncEnumerator<ResumableFunctionState<TOut>>> Resume<TOut>(string filename, object existingInstance)
+    {
+        throw new NotImplementedException();
+    }
+
     public bool TryGetOriginalMethod(IAsyncEnumerable<ResumableFunctionState> enumerable, [NotNullWhen(true)] out RegisteredMethod? method)
     {
         return TryGetOriginalMethodInternal(enumerable.GetType(), out method);
     }
 
-    private static string FileName<T>(ResumableData<T> data) where T : struct
+    public async Task ResumeAll()
     {
-        //return $"{data.Metadata.LastUpdateTime:yyMMddHHmmssfff}_{data.Metadata.Name}.json";
+        foreach (string filename in storage.EnumerateFiles().Order())
+        {
+            string jsonContent = await storage.Load(filename);
+            //ResumableData<ResumableFunctionState<T>>
+            JObject json = JObject.Parse(jsonContent);
+            Console.WriteLine(json);
+            string methodName = json["Metadata"]!["MethodName"]!.Value<string>()!;
+            bool isStatic = json["Metadata"]!["IsStatic"]!.Value<bool>();
+            BindingFlags flags = (BindingFlags)json["Metadata"]!["Flags"]!.Value<int>();
+            string fullTypeName = json["Metadata"]!["Type"]!.Value<string>()!;
+            Type targetType = Type.GetType(fullTypeName) ?? throw new ArgumentException($"Type not found: '{fullTypeName}'");
+            MethodInfo method = targetType.GetMethod(methodName, flags) ?? throw new ArgumentException($"Method not found: '{fullTypeName}::{methodName}'");
+            Type enumeratorType = typeof(IAsyncEnumerator<>).MakeGenericType( /*TODO*/);
+            if (!isStatic)
+            {
+                object instance = Activator.CreateInstance(targetType) ?? throw new ArgumentException($"Instance failed: '{fullTypeName}'");
+                //json["EnumeratorState"].
+            }
+            else { }
+        }
+    }
+
+    private static string FileName(ResumablePersistenceData data)
+    {
         return $"{data.Metadata.Id}_{data.Metadata.MethodName}.json";
     }
 
@@ -142,21 +200,30 @@ public sealed class ResumableManager : IResumableManager
         return method.ReturnType.GenericTypeArguments[0].GetGenericTypeDefinition() == typeof(ResumableFunctionState<>);
     }
 
-    private ResumableData<T> PrepareData<T>(ResumableAwaiter awaiter, IAsyncEnumerator<T> enumerator)
-        where T : struct
+    private ResumablePersistenceData PrepareData<T>(ResumableAwaiter awaiter, IAsyncEnumerator<T> enumerator)
     {
-        var method = GetOriginalMethodOrFail(enumerator.GetType());
-        return new ResumableData<T>
+        RegisteredMethod method = GetOriginalMethodOrFail(enumerator.GetType());
+        return new ResumablePersistenceData
         {
-            EnumeratorState = enumerator,
-            Metadata = new ResumableData<T>.MetaData
+            Metadata = new ResumablePersistenceData.ResumableMetaData
             {
                 Id = $"{awaiter.startTime:yyMMddHHmmssfff}T",
                 StartTime = awaiter.startTime,
                 MethodName = method.OriginalMethod.Name,
-                Type = method.OriginalMethod.DeclaringType ?? throw new NullReferenceException("Method is missing declaring type"),
+                StateMachineType = method.StateMachine,
+                IsStatic = method.OriginalMethod.IsStatic,
+                Flags = AttrToFlags(method.OriginalMethod),
             },
-        };
+        }.SetEnumeratorState(enumerator, settings);
+
+        static BindingFlags AttrToFlags(MethodInfo method)
+        {
+            BindingFlags flags = 0;
+            flags |= method.Attributes.HasFlag(MethodAttributes.Public) ? BindingFlags.Public : 0;
+            flags |= method.Attributes.HasFlag(MethodAttributes.Private) ? BindingFlags.NonPublic : 0;
+            flags |= method.Attributes.HasFlag(MethodAttributes.Static) ? BindingFlags.Static : BindingFlags.Instance;
+            return flags;
+        }
     }
 
     private string Serialize(object obj) => JsonConvert.SerializeObject(obj, JSON_FORMATTING, settings);

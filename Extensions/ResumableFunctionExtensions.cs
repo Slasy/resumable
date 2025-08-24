@@ -13,4 +13,14 @@ public static class ResumableFunctionExtensions
     {
         return new ResumableAwaiter(self, InstanceProvider.Get<IResumableManager>());
     }
+
+    public static ResumableAwaiter<T> GetAwaiter<T>(this IAsyncEnumerator<ResumableFunctionState<T>> self)
+    {
+        return new ResumableAwaiter<T>(self, InstanceProvider.Get<IResumableManager>());
+    }
+
+    public static ResumableAwaiter GetAwaiter(this IAsyncEnumerator<ResumableFunctionState> self)
+    {
+        return new ResumableAwaiter(self, InstanceProvider.Get<IResumableManager>());
+    }
 }
